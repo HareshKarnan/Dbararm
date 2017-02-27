@@ -2,13 +2,17 @@ import cv2
 import numpy as np
 import time
 import math
+import control
 from operator import itemgetter, attrgetter, methodcaller
 x_point=[]
 y_point=[]
+circledraw=[]
 length = 23.5
 breadth = 19.0
 #load camera
-cap = cv2.VideoCapture(2)
+cap = cv2.VideoCapture(0)
+fourcc=cv2.cv.CV_FOURCC(*'FMP4')
+out = cv2.VideoWriter('output.avi',fourcc, 20.0, (800,600))
 def nothing(x):
     pass
 
@@ -17,7 +21,8 @@ def get_pixel(event,x,y,flags,param):
         print x,y
         x_point.append(x)
         y_point.append(y)
-            
+
+ 
 #create calibration window
 cv2.namedWindow('Calibration', cv2.WINDOW_NORMAL)
 cv2.setMouseCallback('Calibration',get_pixel)
@@ -43,7 +48,11 @@ cv2.resizeWindow('image', 800, 600)
 
 cv2.namedWindow('mask', cv2.WINDOW_NORMAL)
 cv2.resizeWindow('mask', 800, 600)
-
+th=0
+#time variables
+t2=0
+t1=0
+tc=time.time()
 while(len(x_point)>3):
     tic=time.clock()
     # Capture frame-by-frame
@@ -52,7 +61,7 @@ while(len(x_point)>3):
     #image warp
     M = cv2.getPerspectiveTransform(pts1,pts2)
     imgc=cv2.warpPerspective(img,M,(800,600))
-
+    
     #rotate image
     (h, w) = imgc.shape[:2]
     center = (w / 2, h / 2)
@@ -81,9 +90,11 @@ while(len(x_point)>3):
     x1=0
     x2=0
     x3=0
+    x4=0
     y1=0
     y2=0
     y3=0
+    y4=0
     coord=list()
     for cnt in contours:
         if cv2.contourArea(cnt)>150:
@@ -111,16 +122,29 @@ while(len(x_point)>3):
     
     if num==3:
         coord=sorted(coord,key=itemgetter(0))
+
         
         if(coord[1][1]>coord[2][1] and coord[1][0]>400):
             coord[1],coord[2]=coord[2],coord[1]
         if(coord[1][1]>coord[0][1] and coord[1][0]<400):
             coord[1],coord[0]=coord[0],coord[1]
-            
-        cv2.putText(result_image,"1", (coord[0][0],coord[0][1]), cv2.FONT_HERSHEY_SIMPLEX, 2, 255)
         
+        
+        cv2.putText(result_image,"1", (coord[0][0],coord[0][1]), cv2.FONT_HERSHEY_SIMPLEX, 2, 255)
         cv2.putText(result_image,"2", (coord[2][0],coord[2][1]), cv2.FONT_HERSHEY_SIMPLEX, 2, 255)
         cv2.putText(result_image,"3", (coord[1][0],coord[1][1]), cv2.FONT_HERSHEY_SIMPLEX, 2, 255)
+        
+        #convert pixels in inches. 
+        x1=coord[0][0]*length/800
+        x2=coord[2][0]*length/800
+        x3=coord[1][0]*length/800
+        y1=coord[0][1]*breadth/600
+        y2=coord[2][1]*breadth/600
+        y3=coord[1][1]*breadth/600
+        
+        cv2.putText(result_image,str((x1,y1)), (coord[0][0]-25,coord[0][1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255)
+        cv2.putText(result_image,str((x2,y2)), (coord[2][0]-25,coord[2][1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255)
+        cv2.putText(result_image,str((x3,y3)), (coord[1][0]-25,coord[1][1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255)
 
         x1=coord[0][0]*length/800
         x2=coord[2][0]*length/800
@@ -128,19 +152,50 @@ while(len(x_point)>3):
         y1=coord[0][1]*breadth/600
         y2=coord[2][1]*breadth/600
         y3=coord[1][1]*breadth/600
-        cv2.putText(result_image,str((x1,y1)), (coord[0][0]-25,coord[0][1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255)
-        cv2.putText(result_image,str((x2,y2)), (coord[2][0]-25,coord[2][1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255)
-        cv2.putText(result_image,str((x3,y3)), (coord[1][0]-25,coord[1][1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255)
+        x4=x1+x2-x3
+        y4=y1+y2-y3
         #print coord
         d12=math.sqrt(((x2-x1)**2)+((y2-y1)**2))
         d13=math.sqrt(((x3-x1)**2)+((y3-y1)**2))
         d23=math.sqrt(((x3-x2)**2)+((y3-y2)**2))
-        #a312=math.acos(((d13**2)+(d12**2)-(d23**2))/2*d13*d12)
-        print d12 , d13 , d23
+        beta=math.acos(((d13**2)+(d12**2)-(d23**2))/(2*d13*d12))*180/math.pi
+        alpha = math.acos(((d13**2)+(d23**2)-(d12**2))/(2*d13*d23))*180/math.pi
+        s1=2*math.sin(beta*math.pi/180)*d13
+        #print beta,alpha,s1
+        t1=time.time()
+        a,b=3,3
         
+        xT=0.1+round(a*math.cos(int(th)*math.pi/180),1)
+        yT=8.5+round(b*math.sin(int(th)*math.pi/180),1)
+        th=th+0.5
+        if th==360:
+            th=2
+        if xT==0:
+            xT=0.1
+        print xT,yT
+        #xT,yT=circle(tc)
+        theta = 90 + math.asin((x4-x3)/s1)*180/math.pi
+        
+        s4x = x4 + 7.0
+        s4y = y4 + 1.2
+        s4  = math.sqrt(((s4x-x2)**2)+((s4y-y2)**2))
+
+        s3x = x4 - 7.0
+        s3y = y4 + 1.2
+        s3  = math.sqrt(((s3x-x1)**2)+((s3y-y1)**2))
+        cv2.circle(imgc,(int(s3x*800/length),int(s3y*600/breadth)),10,255)
+        cv2.circle(imgc,(int(s4x*800/length),int(s4y*600/breadth)),10,255)
+        cv2.circle(imgc,(int(x4*800/length),int(y4*600/breadth)),10,255)
+        circledraw.append((x3,y3))
+        for i in circledraw:
+            cv2.circle(imgc,(int(i[0]*800/length),int(i[1]*600/breadth)),1,(0,0,0))
+        control.control(s1,alpha,beta,xT,yT,(t1-t2),theta,s3,s4)
+        t2=time.time()
     cv2.imshow('mask',result_image)
     cv2.imshow('image',imgc)
+    out.write(imgc)
     if cv2.waitKey(1) & 0xFF == ord('q'):
+        out.release()
         break
     toc=time.clock()
     #print tic-toc
